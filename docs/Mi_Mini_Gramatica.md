@@ -56,3 +56,41 @@ inicio
   }
 fin
 ```
+
+
+
+```txt
+inicio
+
+func calcular_suma(a, b) {
+  var resultado = a + b;
+  retornar resultado;
+}
+
+var x = 10;
+var y = 3.14;
+var nombre = "Analizador Lexico";
+var bandera = true;
+
+/* comentario de bloque
+   con varias lineas
+*/
+
+si (x >= 10 && y != 0.0) {
+  imprimir("x es mayor o igual a 10");
+  imprimir(nombre);
+  imprimir("suma = " + resultado);
+} sino {
+  imprimir("x es menor que 10");
+}
+
+mientras (x < 20 || !bandera) {
+  x = x + 1;
+  y = y / 2.0;
+  resultado = resultado % 5;
+  imprimir("Iteracion: " + x);
+  // comentario de linea
+}
+
+fin
+```

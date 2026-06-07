@@ -15,7 +15,7 @@ inline const char* token_type_to_string(LexTokenType type) {
 	case LexTokenKeyword:
 		return "KEYWORD";
 	case LexTokenIdentifier:
-		return "IDENT";
+		return "IDENTIFICADOR";
 	case LexTokenIntNumber:
 		return "INT";
 	case LexTokenFloatNumber:
@@ -23,9 +23,9 @@ inline const char* token_type_to_string(LexTokenType type) {
 	case LexTokenString:
 		return "STRING";
 	case LexTokenOperator:
-		return "OP";
+		return "OPERADOR";
 	case LexTokenSeparator:
-		return "SEP";
+		return "SEPARADOR";
 	default:
 		return "UNKNOWN";
 	}
