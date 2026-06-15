@@ -1,56 +1,72 @@
-# Analizador Léxico con FLEX (GUI) — “mi mini gramática”
+# Analizador Léxico con FLEX, NestJS y Vue
 
-Este proyecto implementa un **analizador léxico** usando **FLEX** y lo integra en una **app gráfica (Windows)** (Win32 + C++17, **sin consola**). La GUI permite pegar código fuente, presionar **Analizar** y ver la **tabla de tokens** (tipo, lexema, línea, columna).
+Este repositorio ahora usa una arquitectura dividida en dos partes:
+
+- `backend/`: API en NestJS que invoca el lexer generado con FLEX.
+- `frontend/`: interfaz en Vue 3 para pegar código Python y ver los tokens.
+
+El lexer principal está en `src/lexer.l` y está enfocado en Python.
 
 ## Requisitos
 
-En Windows, necesitas una toolchain que incluya **flex** y **g++** (recomendado: **MSYS2 MinGW-w64**).
+En Windows, necesitas una toolchain que incluya **flex** y **g++**. La recomendación sigue siendo **MSYS2 MinGW-w64**.
 
-### Opción recomendada: MSYS2
+### Instalación sugerida
 
-1) Instala MSYS2.
-
-2) Abre **MSYS2 MinGW x64** e instala:
+1. Instala MSYS2.
+2. Abre **MSYS2 MinGW x64** e instala:
 
 ```bash
 pacman -S --needed mingw-w64-x86_64-toolchain mingw-w64-x86_64-flex
 ```
 
-3) Asegúrate de tener en `PATH`:
+3. Asegúrate de tener en `PATH`:
 
-- `...\msys64\mingw64\bin` (para `g++` y `flex`)
+- `...\msys64\mingw64\bin`
 
-## Compilación (genera el .exe)
+## Backend
 
-Desde `cmd` (o PowerShell) en la carpeta del proyecto:
+Desde `backend/`:
 
-```bat
-build\build.bat
+```bash
+npm install
+npm run start:dev
 ```
 
-Salida:
+El backend expone:
 
-- `build\MiniGramaticaLexerGUI.exe`
+- `POST /lexer/lex` para tokens léxicos.
+- `POST /syntax/analyze` para el análisis sintáctico y generación de AST.
 
-## Uso
+Además, ejecuta automáticamente el build del lexer antes de arrancar.
 
-1) Ejecuta `build\MiniGramaticaLexerGUI.exe`
-2) Pega un programa de prueba
-3) Clic en **Analizar**
+## Frontend
 
-## Lenguaje de prueba (“mi mini gramática”)
+Desde `frontend/`:
 
-La especificación de tokens y ejemplos está documentada en:
+```bash
+npm install
+npm run dev
+```
 
-- `docs/mini-gramatica.md`
+La interfaz se conecta al backend en `http://localhost:3000`.
 
-## Autómata / explicación
+## Frontend
 
-Una explicación simplificada del autómata (DFA) para algunos tokens clave:
+Desde `frontend/`:
 
-- `docs/automata.md`
+```bash
+npm install
+npm run dev
+```
 
-## Entrega en GitHub
+La interfaz permite alternar entre análisis léxico y sintáctico.
 
-- Sube el **código fuente completo**.
-- Incluye el ejecutable `build/MiniGramaticaLexerGUI.exe` en un **Release** (recomendado) o en un zip.
+## Lexer
+
+El lexer generado se compila desde `src/lexer.l` y se usa para analizar código Python.
+
+## Artefactos conservados
+
+- `build/MiniGramaticaLexerGUI.exe` se conserva solo como binario heredado.
+- El resto de la antigua GUI Win32 ya no forma parte del flujo actual.
