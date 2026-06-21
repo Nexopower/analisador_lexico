@@ -71,6 +71,7 @@ class Parser {
   }
 
   private parseFunctionDef(): AstNode {
+    const defToken = this.current();
     this.consumeKeyword('def');
     const name = this.consumeIdentifier('Se esperaba el nombre de la función después de def');
     if (name) {
@@ -92,10 +93,11 @@ class Parser {
     this.scopeStack.push(name?.lexeme ?? 'anonymous');
     const body = this.parseSuite();
     this.scopeStack.pop();
-    return { type: 'FunctionDef', name: name?.lexeme ?? null, params, body };
+    return { type: 'FunctionDef', name: name?.lexeme ?? null, params, body, line: defToken?.line, column: defToken?.column };
   }
 
   private parseIfStatement(): AstNode {
+    const ifToken = this.current();
     this.consumeKeyword('if');
     const test = this.parseExpression();
     this.consumeLexeme(':');
@@ -116,24 +118,26 @@ class Parser {
       orelse = this.parseSuite();
     }
 
-    return { type: 'IfStatement', test, body, elifs, orelse };
+    return { type: 'IfStatement', test, body, elifs, orelse, line: ifToken?.line, column: ifToken?.column };
   }
 
   private parseWhileStatement(): AstNode {
+    const whileToken = this.current();
     this.consumeKeyword('while');
     const test = this.parseExpression();
     this.consumeLexeme(':');
     const body = this.parseSuite();
-    return { type: 'WhileStatement', test, body };
+    return { type: 'WhileStatement', test, body, line: whileToken?.line, column: whileToken?.column };
   }
 
   private parseReturnStatement(): AstNode {
+    const retToken = this.current();
     this.consumeKeyword('return');
     if (this.isStatementTerminator()) {
-      return { type: 'ReturnStatement', value: null };
+      return { type: 'ReturnStatement', value: null, line: retToken?.line, column: retToken?.column };
     }
     const value = this.parseExpression();
-    return { type: 'ReturnStatement', value };
+    return { type: 'ReturnStatement', value, line: retToken?.line, column: retToken?.column };
   }
 
   private parseSimpleStatement(): AstNode | null {
@@ -144,7 +148,7 @@ class Parser {
       if (target) {
         this.addSymbol(target.lexeme, 'variable', this.currentScope(), target);
       }
-      return { type: 'Assignment', target: target?.lexeme ?? null, value };
+      return { type: 'Assignment', target: target?.lexeme ?? null, value, line: target?.line, column: target?.column };
     }
 
     const expr = this.parseExpression();
@@ -275,19 +279,23 @@ class Parser {
     }
 
     if (this.checkType('IDENTIFICADOR')) {
-      return { type: 'Identifier', name: this.advance()?.lexeme ?? '' };
+      const t = this.advance();
+      return { type: 'Identifier', name: t?.lexeme ?? '', line: t?.line, column: t?.column };
     }
 
     if (this.checkType('INT') || this.checkType('FLOAT')) {
-      return { type: 'NumberLiteral', value: this.advance()?.lexeme ?? '' };
+      const t = this.advance();
+      return { type: 'NumberLiteral', value: t?.lexeme ?? '', line: t?.line, column: t?.column };
     }
 
     if (this.checkType('STRING')) {
-      return { type: 'StringLiteral', value: this.advance()?.lexeme ?? '' };
+      const t = this.advance();
+      return { type: 'StringLiteral', value: t?.lexeme ?? '', line: t?.line, column: t?.column };
     }
 
     if (this.isKeyword('True') || this.isKeyword('False') || this.isKeyword('None')) {
-      return { type: 'Literal', value: this.advance()?.lexeme ?? '' };
+      const t = this.advance();
+      return { type: 'Literal', value: t?.lexeme ?? '', line: t?.line, column: t?.column };
     }
 
     this.error(`Token inesperado en expresión: ${token.lexeme}`);

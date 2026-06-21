@@ -42,8 +42,6 @@ body {
 }
 
 .header-inner {
-  max-width: 1100px;
-  margin: 0 auto;
   display: flex;
   align-items: center;
   gap: 14px;
@@ -76,9 +74,7 @@ body {
 }
 
 .app-main {
-  max-width: 1100px;
-  margin: 0 auto;
   width: 100%;
-  padding: 28px 24px;
+  padding: 20px 24px;
 }
 </style>
