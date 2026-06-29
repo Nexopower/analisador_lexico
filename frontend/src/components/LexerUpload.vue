@@ -63,8 +63,29 @@
               <span v-if="loading" class="spinner"></span>
               {{ loading ? 'Analizando…' : '▶  Analizar' }}
             </button>
+            <button class="btn btn-translate" @click="translate" :disabled="translating">
+              <span v-if="translating" class="spinner"></span>
+              {{ translating ? 'Traduciendo…' : '⇄  Python → C++' }}
+            </button>
             <button class="btn btn-ghost" @click="loadExample">Cargar ejemplo</button>
           </div>
+        </section>
+
+        <!-- Traductor Python → C++ -->
+        <section v-if="translatorResult !== null" class="panel trans-panel">
+          <div class="panel-header">
+            <span class="panel-label">Traducción · Python → C++</span>
+            <span class="status-chip" :class="translatorResult.success ? 'ok' : 'err'">
+              {{ translatorResult.success ? '✓ Generado' : '✗ Error' }}
+            </span>
+            <button class="btn-copy" @click="copyCpp" :title="copied ? 'Copiado!' : 'Copiar código'">
+              {{ copied ? '✓' : '⎘' }}
+            </button>
+          </div>
+          <div v-if="!translatorResult.success" class="trans-error">
+            {{ translatorResult.error }}
+          </div>
+          <pre v-else class="cpp-pre">{{ translatorResult.code }}</pre>
         </section>
 
         <!-- Semántico -->
@@ -172,12 +193,16 @@ type SyntaxResult = { success: boolean; ast?: unknown; errors: string[] }
 type SemanticDiag = { message: string; line?: number; column?: number }
 type SymbolInfo = { name: string; kind: string; scope: string; inferredType: string; line?: number; usages: number }
 type SemanticResult = { success: boolean; errors: SemanticDiag[]; warnings: SemanticDiag[]; symbolTable: SymbolInfo[] }
+type TranslatorResult = { success: boolean; code: string; error?: string }
 
 const code = ref(`def saludo(nombre):\n    print(f"Hola {nombre}")\n\nif __name__ == '__main__':\n    saludo('Mundo')\n`)
 const tokens = ref<Token[]>([])
 const syntaxResult = ref<SyntaxResult | null>(null)
 const semanticResult = ref<SemanticResult | null>(null)
+const translatorResult = ref<TranslatorResult | null>(null)
 const loading = ref(false)
+const translating = ref(false)
+const copied = ref(false)
 const resultsReady = ref(false)
 
 const textareaRef = ref<HTMLTextAreaElement | null>(null)
@@ -276,6 +301,30 @@ function kindChip(kind: string) {
 
 function loadExample() {
   code.value = `def saludo(nombre):\n    print(f"Hola {nombre}")\n\nif __name__ == '__main__':\n    saludo('Mundo')\n`
+}
+
+async function translate() {
+  translating.value = true
+  translatorResult.value = null
+  try {
+    const res = await fetch('http://localhost:3000/translator/translate', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: code.value })
+    })
+    translatorResult.value = await res.json()
+  } catch {
+    translatorResult.value = { success: false, code: '', error: 'Error al conectar con el backend' }
+  } finally {
+    translating.value = false
+  }
+}
+
+async function copyCpp() {
+  if (!translatorResult.value?.code) return
+  await navigator.clipboard.writeText(translatorResult.value.code)
+  copied.value = true
+  setTimeout(() => { copied.value = false }, 2000)
 }
 
 function insertTab(e: KeyboardEvent) {
@@ -445,6 +494,8 @@ function insertTab(e: KeyboardEvent) {
 .btn-primary:hover:not(:disabled) { background: #2ea043; }
 .btn-ghost { background: transparent; color: #8b949e; border: 1px solid #30363d; }
 .btn-ghost:hover { background: #21262d; color: #e6edf3; }
+.btn-translate { background: #1a3a5c; color: #79c0ff; border: 1px solid #2d5986; }
+.btn-translate:hover:not(:disabled) { background: #1f4a73; }
 
 .spinner {
   width: 12px; height: 12px;
@@ -455,6 +506,48 @@ function insertTab(e: KeyboardEvent) {
   display: inline-block;
 }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* ── Traductor ── */
+.trans-panel {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  flex: 0 0 auto;
+}
+
+.cpp-pre {
+  flex: 1;
+  margin: 0;
+  padding: 14px 16px;
+  background: #0d1117;
+  color: #ffa657;
+  font-family: 'Courier New', 'Cascadia Code', monospace;
+  font-size: 12px;
+  line-height: 1.6;
+  white-space: pre;
+  overflow: auto;
+  max-height: 280px;
+}
+
+.trans-error {
+  padding: 12px 16px;
+  color: #ffa198;
+  background: #3d1a1a;
+  font-size: 12.5px;
+}
+
+.btn-copy {
+  background: #21262d;
+  border: 1px solid #30363d;
+  color: #8b949e;
+  border-radius: 5px;
+  padding: 2px 8px;
+  cursor: pointer;
+  font-size: 13px;
+  line-height: 1;
+  transition: background 0.15s;
+}
+.btn-copy:hover { background: #30363d; color: #e6edf3; }
 
 /* ── Semántico ── */
 .sem-panel {

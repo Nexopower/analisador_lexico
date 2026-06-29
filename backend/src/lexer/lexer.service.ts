@@ -11,7 +11,7 @@ const execFile = promisify(_execFile as any);
 export class LexerService {
   async lex(code: string): Promise<any[]> {
     const tmp = tmpdir();
-    const inPath = join(tmp, `input_${Date.now()}.py`);
+    const inPath = join(tmp, `input_${Date.now()}_${Math.random().toString(36).slice(2)}.py`);
     try {
       await writeFile(inPath, code, 'utf8');
       // Try to run a built flex lexer binary. Search in backend/build and repo-root build.
