@@ -67,6 +67,10 @@
               <span v-if="translating" class="spinner"></span>
               {{ translating ? 'Traduciendo…' : '⇄  Python → C++' }}
             </button>
+            <button class="btn btn-optimize" @click="optimize" :disabled="optimizing">
+              <span v-if="optimizing" class="spinner"></span>
+              {{ optimizing ? 'Optimizando…' : '⚡  Optimizar → C++' }}
+            </button>
             <button class="btn btn-ghost" @click="loadExample">Cargar ejemplo</button>
           </div>
         </section>
@@ -86,6 +90,45 @@
             {{ translatorResult.error }}
           </div>
           <pre v-else class="cpp-pre">{{ translatorResult.code }}</pre>
+        </section>
+
+        <!-- Optimizador -->
+        <section v-if="optimizerResult !== null" class="panel opt-panel">
+          <div class="panel-header">
+            <span class="panel-label">Optimizador · C++</span>
+            <span class="status-chip" :class="optimizerResult.success ? 'ok' : 'err'">
+              {{ optimizerResult.success
+                ? `⚡ ${optimizerResult.totalChanges} optimización(es) · ${optimizerResult.passesRun} pasada(s)`
+                : '✗ Error' }}
+            </span>
+            <button v-if="optimizerResult.success" class="btn-copy" @click="copyOptCpp" :title="copiedOpt ? 'Copiado!' : 'Copiar C++'">
+              {{ copiedOpt ? '✓' : '⎘' }}
+            </button>
+          </div>
+
+          <div v-if="!optimizerResult.success" class="trans-error">{{ optimizerResult.error }}</div>
+
+          <div v-else class="opt-body">
+            <!-- Reporte de cambios -->
+            <div class="opt-report">
+              <p class="ast-label">Optimizaciones aplicadas</p>
+              <div v-if="!optimizerResult.changes.length" class="opt-no-changes">
+                Sin optimizaciones posibles — el código ya es óptimo.
+              </div>
+              <ul v-else class="opt-list">
+                <li v-for="(c, i) in optimizerResult.changes" :key="i" class="opt-item">
+                  <span class="opt-pass-chip" :class="passChip(c.pass)">{{ c.pass }}</span>
+                  <span class="opt-desc">{{ c.description }}</span>
+                  <span v-if="c.line" class="diag-loc">L{{ c.line }}</span>
+                </li>
+              </ul>
+            </div>
+            <!-- Código C++ optimizado -->
+            <div class="opt-code-block">
+              <p class="ast-label">C++ generado (optimizado)</p>
+              <pre class="cpp-pre opt-pre">{{ optimizerResult.optimizedCpp }}</pre>
+            </div>
+          </div>
         </section>
 
         <!-- Semántico -->
@@ -194,15 +237,20 @@ type SemanticDiag = { message: string; line?: number; column?: number }
 type SymbolInfo = { name: string; kind: string; scope: string; inferredType: string; line?: number; usages: number }
 type SemanticResult = { success: boolean; errors: SemanticDiag[]; warnings: SemanticDiag[]; symbolTable: SymbolInfo[] }
 type TranslatorResult = { success: boolean; code: string; error?: string }
+type OptChange = { pass: string; description: string; line?: number }
+type OptimizerResult = { success: boolean; optimizedCpp: string; changes: OptChange[]; totalChanges: number; passesRun: number; error?: string }
 
 const code = ref(`def saludo(nombre):\n    print(f"Hola {nombre}")\n\nif __name__ == '__main__':\n    saludo('Mundo')\n`)
 const tokens = ref<Token[]>([])
 const syntaxResult = ref<SyntaxResult | null>(null)
 const semanticResult = ref<SemanticResult | null>(null)
 const translatorResult = ref<TranslatorResult | null>(null)
+const optimizerResult = ref<OptimizerResult | null>(null)
 const loading = ref(false)
 const translating = ref(false)
+const optimizing = ref(false)
 const copied = ref(false)
+const copiedOpt = ref(false)
 const resultsReady = ref(false)
 
 const textareaRef = ref<HTMLTextAreaElement | null>(null)
@@ -325,6 +373,46 @@ async function copyCpp() {
   await navigator.clipboard.writeText(translatorResult.value.code)
   copied.value = true
   setTimeout(() => { copied.value = false }, 2000)
+}
+
+async function optimize() {
+  optimizing.value = true
+  optimizerResult.value = null
+  try {
+    const res = await fetch('http://localhost:3000/optimizer/optimize', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code: code.value })
+    })
+    const json = await res.json()
+    optimizerResult.value = {
+      success: Boolean(json.success),
+      optimizedCpp: json.optimizedCpp ?? '',
+      changes: Array.isArray(json.changes) ? json.changes : [],
+      totalChanges: json.totalChanges ?? 0,
+      passesRun: json.passesRun ?? 0,
+      error: json.error,
+    }
+  } catch {
+    optimizerResult.value = { success: false, optimizedCpp: '', changes: [], totalChanges: 0, passesRun: 0, error: 'Error al conectar con el backend' }
+  } finally {
+    optimizing.value = false
+  }
+}
+
+async function copyOptCpp() {
+  if (!optimizerResult.value?.optimizedCpp) return
+  await navigator.clipboard.writeText(optimizerResult.value.optimizedCpp)
+  copiedOpt.value = true
+  setTimeout(() => { copiedOpt.value = false }, 2000)
+}
+
+function passChip(pass: string): string {
+  if (pass.includes('constante') && pass.includes('Plegado')) return 'pass-fold'
+  if (pass.includes('algebraica') || pass.includes('Reducción')) return 'pass-alg'
+  if (pass.includes('Propagación')) return 'pass-prop'
+  if (pass.includes('muerto')) return 'pass-dead'
+  return 'pass-fold'
 }
 
 function insertTab(e: KeyboardEvent) {
@@ -496,6 +584,8 @@ function insertTab(e: KeyboardEvent) {
 .btn-ghost:hover { background: #21262d; color: #e6edf3; }
 .btn-translate { background: #1a3a5c; color: #79c0ff; border: 1px solid #2d5986; }
 .btn-translate:hover:not(:disabled) { background: #1f4a73; }
+.btn-optimize { background: #3a2a00; color: #e3b341; border: 1px solid #6a4e00; }
+.btn-optimize:hover:not(:disabled) { background: #4a3600; }
 
 .spinner {
   width: 12px; height: 12px;
@@ -548,6 +638,68 @@ function insertTab(e: KeyboardEvent) {
   transition: background 0.15s;
 }
 .btn-copy:hover { background: #30363d; color: #e6edf3; }
+
+/* ── Optimizador ── */
+.opt-panel {
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  flex: 0 0 auto;
+}
+
+.opt-body {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  overflow: hidden;
+}
+
+.opt-report {
+  padding: 10px 14px;
+  border-bottom: 1px solid #30363d;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+.opt-no-changes { font-size: 12px; color: #56d364; }
+
+.opt-list { list-style: none; padding: 0; margin: 0; display: flex; flex-direction: column; gap: 4px; }
+.opt-item {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 12px;
+  padding: 3px 0;
+}
+
+.opt-pass-chip {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 10px;
+  font-weight: 700;
+  font-family: 'Courier New', monospace;
+  flex-shrink: 0;
+}
+.pass-fold { background: #1f3a5f; color: #79c0ff; }
+.pass-alg  { background: #2d1f3d; color: #d2a8ff; }
+.pass-prop { background: #3a2a00; color: #e3b341; }
+.pass-dead { background: #3d1a1a; color: #ffa198; }
+
+.opt-desc { color: #e6edf3; font-family: 'Courier New', monospace; }
+
+.opt-code-block {
+  padding: 10px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.opt-pre { max-height: 220px; color: #56d364; }
 
 /* ── Semántico ── */
 .sem-panel {

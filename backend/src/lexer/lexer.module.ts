@@ -7,10 +7,12 @@ import { SemanticController } from '../semantic/semantic.controller';
 import { SemanticService } from '../semantic/semantic.service';
 import { TranslatorController } from '../translator/translator.controller';
 import { TranslatorService } from '../translator/translator.service';
+import { OptimizerController } from '../optimizer/optimizer.controller';
+import { OptimizerService } from '../optimizer/optimizer.service';
 
 @Module({
-  controllers: [LexerController, SyntaxController, SemanticController, TranslatorController],
-  providers: [LexerService, SyntaxService, SemanticService, TranslatorService],
+  controllers: [LexerController, SyntaxController, SemanticController, TranslatorController, OptimizerController],
+  providers: [LexerService, SyntaxService, SemanticService, TranslatorService, OptimizerService],
   exports: [LexerService],
 })
 export class LexerModule {}

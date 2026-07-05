@@ -293,6 +293,15 @@ class CppGenerator {
 export class TranslatorService {
   constructor(private readonly syntaxService: SyntaxService) {}
 
+  translateFromAst(ast: AstNode): TranslatorResult {
+    try {
+      const gen = new CppGenerator();
+      return { success: true, code: gen.generate(ast) };
+    } catch (e: any) {
+      return { success: false, code: '', error: `Error al generar C++: ${e.message}` };
+    }
+  }
+
   async translate(code: string): Promise<TranslatorResult> {
     const syntaxResult = await this.syntaxService.analyze(code);
 
