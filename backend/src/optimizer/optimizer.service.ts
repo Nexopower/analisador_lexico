@@ -78,20 +78,30 @@ class AstOptimizer {
 
       // ── static while elimination ──────────────────────────────────────────
       if (stmt.type === 'WhileStatement') {
-        const test = this.optimizeExpr(stmt.test, env);
+        // Variables modified inside the loop cannot be treated as constants in the condition
+        const mutated = this.collectMutatedVars(stmt.body ?? []);
+        const condEnv = new Map(env);
+        for (const v of mutated) condEnv.delete(v);
+
+        const test = this.optimizeExpr(stmt.test, condEnv);
         if (this.isAlwaysFalse(test)) {
           this.addChange('Eliminación de código muerto',
             `'while False:' → bucle eliminado`, stmt.line);
           continue;
         }
-        // Conservative: clear env inside loop (variables may change each iteration)
+        // After the loop the mutated variables have unknown values — invalidate them
+        for (const v of mutated) env.delete(v);
         result.push({ ...stmt, test, body: this.optimizeStmts(stmt.body ?? [], new Map()) });
         continue;
       }
 
       // ── for loop ─────────────────────────────────────────────────────────
       if (stmt.type === 'ForStatement') {
+        const mutated = this.collectMutatedVars(stmt.body ?? []);
         const iter = this.optimizeExpr(stmt.iter, env);
+        const loopVar = typeof stmt.target === 'string' ? stmt.target : stmt.target?.name;
+        if (loopVar) env.delete(loopVar);
+        for (const v of mutated) env.delete(v);
         result.push({ ...stmt, iter, body: this.optimizeStmts(stmt.body ?? [], new Map()) });
         continue;
       }
@@ -523,6 +533,28 @@ class AstOptimizer {
     if (node?.type === 'StringLiteral') return node.value;
     if (node?.type === 'Literal') return node.value;
     return '?';
+  }
+
+  private collectMutatedVars(stmts: AstNode[]): Set<string> {
+    const vars = new Set<string>();
+    for (const stmt of stmts) {
+      if (stmt.type === 'Assignment') {
+        const name = typeof stmt.target === 'string' ? stmt.target : (stmt.targetNode?.name ?? null);
+        if (name) vars.add(name);
+      } else if (stmt.type === 'AugmentedAssignment' && stmt.target?.type === 'Identifier') {
+        vars.add(stmt.target.name);
+      }
+      for (const key of ['body', 'orelse', 'finalbody'] as const) {
+        if (Array.isArray((stmt as any)[key]))
+          for (const v of this.collectMutatedVars((stmt as any)[key])) vars.add(v);
+      }
+      if (Array.isArray(stmt.elifs)) {
+        for (const elif of stmt.elifs)
+          if (Array.isArray(elif.body))
+            for (const v of this.collectMutatedVars(elif.body)) vars.add(v);
+      }
+    }
+    return vars;
   }
 
   private addChange(pass: string, description: string, line?: number): void {

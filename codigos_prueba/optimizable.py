@@ -1,44 +1,63 @@
-# Código con múltiples oportunidades de optimización
-
 PI = 3.14159
-RADIO = 5
+E = 2.71828
+GRAVEDAD = 9.8
+RADIO_TIERRA = 6371
 
-# Plegado de constantes: 2 + 3 → 5, 10 * 2 → 20
-suma = 2 + 3
-doble = 10 * 2
-potencia = 2 ** 8
+def area_circulo(radio):
+    return PI * radio * radio
 
-# Simplificación algebraica: x * 1, x + 0, x ** 1
-area = RADIO * 1
-perimetro = 0 + RADIO
-valor = potencia ** 1
+def area_esfera(radio):
+    return 4 * PI * radio * radio
 
-# Propagación de constantes: PI y RADIO se sustituyen
-circunferencia = 2 * PI
-volumen = RADIO * RADIO * RADIO
+def circunferencia(radio):
+    return 2 * PI * radio
 
-# Eliminación de código muerto
+def energia_potencial(masa, altura):
+    return masa * GRAVEDAD * altura
+
+def velocidad_caida(tiempo):
+    return GRAVEDAD * tiempo
+
+def distancia_caida(tiempo):
+    return 0 + GRAVEDAD * tiempo * tiempo / 2
+
 def calcular(x):
-    resultado = x * PI
-    return resultado
-    print("esto nunca se ejecuta")
-    suma = x + 100
+    base = x * 1
+    resultado = base + 0
+    factor = 1 * resultado
+    return factor
 
-# Rama estática eliminada
+def es_multiplo(n, divisor):
+    resto = n % divisor
+    if resto == 0:
+        return True
+    else:
+        return False
+
+suma_constante = 2 + 3
+producto_constante = 10 * 4
+potencia_fija = 2 ** 8
+valor_puro = 100 / 1
+
+area_fija = PI * RADIO_TIERRA * RADIO_TIERRA
+
 if True:
-    print("siempre se ejecuta")
+    print("Sistema inicializado")
 
 if False:
-    print("nunca se ejecuta")
+    print("esto no se ejecuta")
 else:
-    print("esta si")
+    print("modo de produccion activo")
 
-# Reducción de potencia: n ** 2 → n * n
-def cuadrado(n):
-    return n ** 2
-
-# while False eliminado
 while False:
     print("bucle imposible")
 
-print("Fin del programa")
+radio = 7
+print("Area circulo: " + str(area_circulo(radio)))
+print("Area esfera: " + str(area_esfera(radio)))
+print("Circunferencia: " + str(circunferencia(radio)))
+print("Energia (masa=10, h=50): " + str(energia_potencial(10, 50)))
+print("Velocidad (t=5): " + str(velocidad_caida(5)))
+print("Suma constante: " + str(suma_constante))
+print("2^8 = " + str(potencia_fija))
+print("Area Tierra: " + str(area_fija))

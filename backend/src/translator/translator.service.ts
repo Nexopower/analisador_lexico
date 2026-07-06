@@ -15,24 +15,44 @@ class CppGenerator {
   private scopeVarStack: Set<string>[] = [];
 
   generate(ast: AstNode): string {
-    const functions: string[] = [];
+    const functionNodes: AstNode[] = [];
     const globals: string[] = [];
 
     for (const stmt of ast.body ?? []) {
       if (stmt.type === 'FunctionDef') {
-        functions.push(...this.genFunctionDef(stmt), '');
+        functionNodes.push(stmt);
       } else if (this.isMainGuard(stmt)) {
-        // if __name__ == '__main__': → unwrap body into main()
         for (const s of stmt.body ?? []) globals.push(...this.genStatement(s));
       } else {
         globals.push(...this.genStatement(stmt));
       }
     }
 
+    // Sort so callee functions appear before caller functions
+    const sortedFns = this.topoSort(functionNodes);
+
+    // Forward declarations (safety net for mutual recursion / cycles)
+    const fwdDecls: string[] = [];
+    for (const fn of sortedFns) fwdDecls.push(...this.genForwardDecl(fn));
+
+    // Full definitions in dependency order
+    const functions: string[] = [];
+    for (const fn of sortedFns) functions.push(...this.genFunctionDef(fn), '');
+
     const lines: string[] = [
       '// Compilar con: g++ -std=c++20 archivo.cpp -o programa',
       '#include <iostream>',
       '#include <string>',
+      '#include <cmath>',
+      '#include <cstdlib>',
+      '#ifndef M_PI',
+      '#define M_PI 3.14159265358979323846',
+      '#endif',
+      '#ifndef M_E',
+      '#define M_E 2.71828182845904523536',
+      '#endif',
+      '',
+      ...fwdDecls,
       '',
       ...functions,
     ];
@@ -47,6 +67,65 @@ class CppGenerator {
 
   private pad(): string {
     return '    '.repeat(this.indentLevel);
+  }
+
+  private genForwardDecl(node: AstNode): string[] {
+    const rawParams = (node.params ?? []) as any[];
+    const pname = (p: any): string => typeof p === 'string' ? p : (p?.name ?? '?');
+    const retType = this.hasReturnValue(node.body ?? []) ? 'auto' : 'void';
+    if (rawParams.length > 0) {
+      const tmpl   = `template<${rawParams.map((_, i) => `typename T${i}`).join(', ')}>`;
+      const params = rawParams.map((p, i) => `T${i} ${pname(p)}`).join(', ');
+      return [tmpl, `${retType} ${node.name}(${params});`];
+    }
+    return [`${retType} ${node.name}();`];
+  }
+
+  // Collect names of user-defined functions called within a set of AST nodes
+  private collectCallDeps(nodes: AstNode[], userFns: Set<string>): Set<string> {
+    const deps = new Set<string>();
+    const walk = (node: AstNode) => {
+      if (!node || typeof node !== 'object') return;
+      if (node.type === 'CallExpression' && node.callee?.type === 'Identifier') {
+        if (userFns.has(node.callee.name)) deps.add(node.callee.name);
+      }
+      for (const key of Object.keys(node)) {
+        const val = node[key];
+        if (Array.isArray(val)) val.forEach(v => v && typeof v === 'object' && walk(v as AstNode));
+        else if (val && typeof val === 'object' && key !== 'parent') walk(val as AstNode);
+      }
+    };
+    nodes.forEach(walk);
+    return deps;
+  }
+
+  // Topological sort: callee functions come before caller functions
+  private topoSort(functionNodes: AstNode[]): AstNode[] {
+    const nameToNode = new Map<string, AstNode>();
+    for (const fn of functionNodes) nameToNode.set(fn.name as string, fn);
+    const userFns = new Set(nameToNode.keys());
+
+    const deps = new Map<string, Set<string>>();
+    for (const fn of functionNodes) {
+      deps.set(fn.name as string, this.collectCallDeps(fn.body ?? [], userFns));
+    }
+
+    const sorted: AstNode[] = [];
+    const visited = new Set<string>();
+    const inStack = new Set<string>();
+
+    const visit = (name: string) => {
+      if (visited.has(name) || inStack.has(name)) return;
+      inStack.add(name);
+      for (const dep of deps.get(name) ?? []) visit(dep);
+      inStack.delete(name);
+      visited.add(name);
+      const node = nameToNode.get(name);
+      if (node) sorted.push(node);
+    };
+
+    for (const fn of functionNodes) visit(fn.name as string);
+    return sorted;
   }
 
   // Detecta el patrón if __name__ == '__main__':
@@ -84,16 +163,15 @@ class CppGenerator {
   }
 
   private genFunctionDef(node: AstNode): string[] {
-    const params = (node.params ?? []).map((p: string) => `auto ${p}`).join(', ');
-    const retType = this.hasReturnValue(node.body ?? []) ? 'auto' : 'void';
+    const rawParams = (node.params ?? []) as any[];
+    const pname = (p: any): string => typeof p === 'string' ? p : (p?.name ?? '?');
 
-    // template si tiene parámetros (auto params requiere C++20 o template)
-    const templateLine = (node.params ?? []).length > 0
-      ? [`template<${(node.params ?? []).map((_: string, i: number) => `typename T${i}`).join(', ')}>`]
+    const retType  = this.hasReturnValue(node.body ?? []) ? 'auto' : 'void';
+    const hasParams = rawParams.length > 0;
+    const templateLine = hasParams
+      ? [`template<${rawParams.map((_, i) => `typename T${i}`).join(', ')}>`]
       : [];
-    const paramList = (node.params ?? []).map((p: string, i: number) =>
-      (node.params ?? []).length > 0 ? `T${i} ${p}` : `auto ${p}`
-    ).join(', ');
+    const paramList = rawParams.map((p, i) => `T${i} ${pname(p)}`).join(', ');
 
     const lines: string[] = [
       ...templateLine,
@@ -101,7 +179,7 @@ class CppGenerator {
     ];
 
     this.scopeVarStack.push(new Set(this.declaredVars));
-    this.declaredVars = new Set(node.params ?? []);
+    this.declaredVars = new Set(rawParams.map(pname));
     this.indentLevel++;
 
     for (const stmt of node.body ?? []) lines.push(...this.genStatement(stmt));
@@ -187,9 +265,14 @@ class CppGenerator {
       }
 
       case 'BinaryExpression': {
+        if (node.operator === '**')
+          return `pow(${this.genExpr(node.left)}, ${this.genExpr(node.right)})`;
         const op  = this.translateOp(node.operator);
         const lhs = this.genExpr(node.left);
         const rhs = this.genExpr(node.right);
+        // "a" + "b" es inválido en C++ (const char* + const char*): envolver en std::string
+        if (op === '+' && this.isRawStringLiteral(lhs) && this.isRawStringLiteral(rhs))
+          return `std::string(${lhs}) + ${rhs}`;
         return `${lhs} ${op} ${rhs}`;
       }
 
@@ -198,9 +281,61 @@ class CppGenerator {
         return `${op}${this.genExpr(node.argument)}`;
       }
 
+      case 'Attribute': {
+        const obj  = this.genExpr(node.object);
+        const attr = node.attr ?? node.attribute ?? '';
+        if (obj === 'math') {
+          if (attr === 'pi')  return 'M_PI';
+          if (attr === 'e')   return 'M_E';
+          if (attr === 'inf') return 'INFINITY';
+          if (attr === 'nan') return 'NAN';
+          if (attr === 'tau') return '(2.0 * M_PI)';
+        }
+        if (obj === 'os') {
+          if (attr === 'sep')     return '"/"';
+          if (attr === 'linesep') return '"\\n"';
+        }
+        return `${obj}.${attr}`;
+      }
+
       case 'CallExpression': {
+        const args = (node.args ?? []) as AstNode[];
+
+        // Handle module.method() calls (math.sqrt, random.randint, os.getcwd, etc.)
+        if (node.callee?.type === 'Attribute') {
+          const obj    = this.genExpr(node.callee.object);
+          const method = node.callee.attr ?? node.callee.attribute ?? '';
+          const argList = args.map(a => this.genExpr(a));
+          const argStr  = argList.join(', ');
+
+          if (obj === 'math') {
+            const mathMap: Record<string, string> = {
+              sqrt: 'sqrt', cbrt: 'cbrt', pow: 'pow',
+              floor: 'floor', ceil: 'ceil', trunc: 'trunc', round: 'round',
+              abs: 'fabs', fabs: 'fabs',
+              log: 'log', log2: 'log2', log10: 'log10', exp: 'exp',
+              sin: 'sin', cos: 'cos', tan: 'tan',
+              asin: 'asin', acos: 'acos', atan: 'atan', atan2: 'atan2',
+              sinh: 'sinh', cosh: 'cosh', tanh: 'tanh',
+              hypot: 'hypot', fmod: 'fmod',
+            };
+            if (method in mathMap) return `${mathMap[method]}(${argStr})`;
+          }
+          if (obj === 'random') {
+            if (method === 'randint' && args.length === 2)
+              return `(${argList[0]} + rand() % (${argList[1]} - ${argList[0]} + 1))`;
+            if (method === 'random' && args.length === 0)
+              return '((double)rand() / RAND_MAX)';
+            if (method === 'uniform' && args.length === 2)
+              return `(${argList[0]} + ((double)rand() / RAND_MAX) * (${argList[1]} - ${argList[0]}))`;
+          }
+          if (obj === 'os') {
+            if (method === 'getcwd') return 'std::string(".")';
+          }
+          return `${obj}.${method}(${argStr})`;
+        }
+
         const callee = node.callee?.name ?? this.genExpr(node.callee);
-        const args   = (node.args ?? []) as AstNode[];
 
         if (callee === 'print') {
           if (args.length === 0) return 'std::cout << std::endl';
@@ -277,13 +412,17 @@ class CppGenerator {
     return `"${inner.replace(/"/g, '\\"')}"`;
   }
 
+  // Detecta si el código generado es un literal string C puro (ej. "texto")
+  private isRawStringLiteral(code: string): boolean {
+    return /^"(?:[^"\\]|\\.)*"$/.test(code);
+  }
+
   private translateOp(op: string): string {
     const map: Record<string, string> = {
       and:  '&&',
       or:   '||',
       not:  '!',
       '//': '/',
-      '**': '/* ** no soportado en C++ */',
     };
     return map[op] ?? op;
   }
