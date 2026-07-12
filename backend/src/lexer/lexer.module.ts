@@ -9,10 +9,12 @@ import { TranslatorController } from '../translator/translator.controller';
 import { TranslatorService } from '../translator/translator.service';
 import { OptimizerController } from '../optimizer/optimizer.controller';
 import { OptimizerService } from '../optimizer/optimizer.service';
+import { CodegenController } from '../codegen/codegen.controller';
+import { CodegenService } from '../codegen/codegen.service';
 
 @Module({
-  controllers: [LexerController, SyntaxController, SemanticController, TranslatorController, OptimizerController],
-  providers: [LexerService, SyntaxService, SemanticService, TranslatorService, OptimizerService],
+  controllers: [LexerController, SyntaxController, SemanticController, TranslatorController, OptimizerController, CodegenController],
+  providers: [LexerService, SyntaxService, SemanticService, TranslatorService, OptimizerService, CodegenService],
   exports: [LexerService],
 })
 export class LexerModule {}

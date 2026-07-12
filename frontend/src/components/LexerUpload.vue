@@ -1,17 +1,66 @@
 <template>
   <div class="analyzer">
 
-    <!-- ══════ FILA SUPERIOR: Editor + Estado ══════ -->
-    <div class="top-row">
+    <!-- ══════ BARRA SUPERIOR: acciones + estado ══════ -->
+    <section class="panel toolbar-panel">
+      <button class="btn btn-primary" @click="analyzeAll" :disabled="loading">
+        <span v-if="loading" class="spinner"></span>
+        {{ loading ? 'Analizando…' : '▶  Analizar todo' }}
+      </button>
+      <select v-model="selectedExample" class="example-select">
+        <option value="real">Ejemplo 1</option>
+        <option value="librerias">Ejemplo 2 (con librerias)</option>
+        <option value="optimizable">Para optimizar</option>
+        <option value="errores_lexicos">Errores léxicos</option>
+        <option value="errores_sintacticos">Errores sintácticos</option>
+        <option value="errores_semanticos">Errores semánticos</option>
+      </select>
+      <button class="btn btn-ghost" @click="loadExample">Cargar</button>
 
-      <!-- Editor -->
-      <section class="panel editor-panel">
-        <div class="panel-header">
-          <span class="panel-dot red"></span>
-          <span class="panel-dot yellow"></span>
-          <span class="panel-dot green"></span>
-          <span class="panel-label">código fuente · Python</span>
-        </div>
+      <div class="phase-chips">
+        <button
+          v-for="ph in phases" :key="ph.key"
+          class="phase-chip"
+          :class="[`pc-${ph.status}`, activeTab === ph.key ? 'pc-active' : '']"
+          :title="ph.detail"
+          @click="activeTab = ph.key"
+        >
+          <span class="pc-icon">{{ ph.icon }}</span>{{ ph.label }}
+        </button>
+      </div>
+
+      <span v-if="resultsReady" class="all-ok-chip" :class="allOk ? 'aok-ok' : 'aok-err'">
+        {{ allOk ? '✓ Todo correcto' : '✗ Hay errores' }}
+      </span>
+    </section>
+
+    <!-- ══════ TABS (pantalla completa) ══════ -->
+    <section class="panel tabs-section">
+
+      <div class="tab-bar">
+        <button
+          class="tab-btn"
+          :class="{ 'tab-active': activeTab === 'editor' }"
+          @click="activeTab = 'editor'"
+        >
+          ✎ Editor
+          <span class="tab-badge badge-neutral">{{ lineCount }}</span>
+        </button>
+        <button
+          v-for="ph in phases" :key="ph.key"
+          class="tab-btn"
+          :class="{ 'tab-active': activeTab === ph.key, 'tab-has-err': ph.status === 'err' }"
+          @click="activeTab = ph.key"
+        >
+          {{ ph.label }}
+          <span v-if="resultsReady && ph.badge !== null" class="tab-badge" :class="ph.badgeClass">{{ ph.badge }}</span>
+        </button>
+      </div>
+
+      <div class="tab-content">
+
+        <!-- ── Editor ── -->
+        <div v-show="activeTab === 'editor'" class="tab-pane editor-pane">
         <div class="editor-wrap">
           <div class="line-numbers" ref="lineNumbersRef">
             <span
@@ -48,71 +97,7 @@
             </div>
           </div>
         </div>
-        <div class="editor-footer">
-          <button class="btn btn-primary" @click="analyzeAll" :disabled="loading">
-            <span v-if="loading" class="spinner"></span>
-            {{ loading ? 'Analizando…' : '▶  Analizar todo' }}
-          </button>
-          <select v-model="selectedExample" class="example-select">
-            <option value="real">Ejemplo 1</option>
-            <option value="librerias">Ejemplo 2 (con librerias)</option>
-            <option value="optimizable">Para optimizar</option>
-            <option value="errores_lexicos">Errores léxicos</option>
-            <option value="errores_sintacticos">Errores sintácticos</option>
-            <option value="errores_semanticos">Errores semánticos</option>
-          </select>
-          <button class="btn btn-ghost" @click="loadExample">Cargar</button>
         </div>
-      </section>
-
-      <!-- Panel de estado -->
-      <section class="panel status-panel">
-        <div class="panel-header">
-          <span class="panel-label">Estado del análisis</span>
-          <span v-if="resultsReady" class="all-ok-chip" :class="allOk ? 'aok-ok' : 'aok-err'">
-            {{ allOk ? '✓ Todo correcto' : '✗ Hay errores' }}
-          </span>
-        </div>
-        <div class="status-body">
-          <div v-if="!resultsReady" class="status-empty">
-            Presiona <strong>"Analizar todo"</strong> para ejecutar el compilador completo.
-          </div>
-          <template v-else>
-            <div
-              v-for="ph in phases" :key="ph.key"
-              class="status-item"
-              :class="[`si-${ph.status}`, activeTab === ph.key ? 'si-active' : '']"
-              @click="activeTab = ph.key"
-            >
-              <span class="si-icon">{{ ph.icon }}</span>
-              <div class="si-text">
-                <span class="si-name">{{ ph.label }}</span>
-                <span class="si-detail">{{ ph.detail }}</span>
-              </div>
-              <span class="si-arrow">›</span>
-            </div>
-          </template>
-        </div>
-      </section>
-
-    </div>
-
-    <!-- ══════ FILA INFERIOR: Tabs ══════ -->
-    <section class="panel tabs-section">
-
-      <div class="tab-bar">
-        <button
-          v-for="ph in phases" :key="ph.key"
-          class="tab-btn"
-          :class="{ 'tab-active': activeTab === ph.key, 'tab-has-err': ph.status === 'err' }"
-          @click="activeTab = ph.key"
-        >
-          {{ ph.label }}
-          <span v-if="resultsReady && ph.badge !== null" class="tab-badge" :class="ph.badgeClass">{{ ph.badge }}</span>
-        </button>
-      </div>
-
-      <div class="tab-content">
 
         <!-- ── Léxico ── -->
         <div v-show="activeTab === 'lexico'" class="tab-pane">
@@ -307,6 +292,36 @@
           </template>
         </div>
 
+        <!-- ── Código Destino ── -->
+        <div v-show="activeTab === 'destino'" class="tab-pane">
+          <div v-if="!resultsReady" class="tab-empty">Sin análisis aún.</div>
+          <div v-else-if="!codegenResult?.success" class="err-block">
+            <p class="block-title err-color">Error en la generación de código destino</p>
+            <p class="err-msg">{{ codegenResult?.error }}</p>
+          </div>
+          <template v-else>
+            <div class="cpp-toolbar">
+              <span class="asm-stat"><strong>{{ codegenResult.stats.instructions }}</strong> instrucciones</span>
+              <span class="opt-dot">·</span>
+              <span class="asm-stat"><strong>{{ codegenResult.stats.registers }}</strong> registros</span>
+              <span class="opt-dot">·</span>
+              <span class="asm-stat"><strong>{{ codegenResult.stats.labels }}</strong> etiquetas</span>
+              <span class="opt-dot">·</span>
+              <span class="asm-stat"><strong>{{ codegenResult.stats.strings }}</strong> cadenas</span>
+              <span class="opt-dot">·</span>
+              <span class="asm-stat"><strong>{{ codegenResult.stats.variables }}</strong> variables</span>
+              <button class="btn-copy ml-auto" @click="copyAsm">{{ copiedAsm ? '✓ Copiado' : '⎘ Copiar ASM' }}</button>
+            </div>
+            <div class="tab-scroll cpp-scroll">
+              <div class="code-numbered code-asm">
+                <div v-for="(l, i) in asmLines" :key="i" class="cl">
+                  <span class="cl-num">{{ i + 1 }}</span><span class="cl-text" :class="asmLineClass(l)">{{ l }}</span>
+                </div>
+              </div>
+            </div>
+          </template>
+        </div>
+
       </div>
     </section>
 
@@ -325,6 +340,8 @@ type SemanticResult = { success: boolean; errors: SemanticDiag[]; warnings: Sema
 type TranslResult   = { success: boolean; code: string; error?: string }
 type OptChange      = { pass: string; description: string; line?: number }
 type OptResult      = { success: boolean; optimizedCpp: string; changes: OptChange[]; totalChanges: number; passesRun: number; error?: string }
+type CodegenStats   = { instructions: number; registers: number; labels: number; strings: number; variables: number }
+type CodegenResult  = { success: boolean; assembly: string; stats: CodegenStats; error?: string }
 
 // ── Examples ──────────────────────────────────────────────────────────────────
 const EX_REAL = `def factorial(n):
@@ -595,12 +612,14 @@ const syntaxResult    = ref<SyntaxResult | null>(null)
 const semanticResult  = ref<SemanticResult | null>(null)
 const translatorResult= ref<TranslResult | null>(null)
 const optimizerResult = ref<OptResult | null>(null)
+const codegenResult   = ref<CodegenResult | null>(null)
 const loading         = ref(false)
 const copiedDirect    = ref(false)
 const copiedOpt       = ref(false)
+const copiedAsm       = ref(false)
 const resultsReady    = ref(false)
 const selectedExample = ref('real')
-const activeTab       = ref<'lexico'|'sintactico'|'semantico'|'traductor'|'optimizador'|'comparacion'>('lexico')
+const activeTab       = ref<'editor'|'lexico'|'sintactico'|'semantico'|'traductor'|'optimizador'|'comparacion'|'destino'>('editor')
 const textareaRef     = ref<HTMLTextAreaElement | null>(null)
 const lineNumbersRef  = ref<HTMLDivElement | null>(null)
 const backdropRef     = ref<HTMLDivElement | null>(null)
@@ -611,6 +630,7 @@ const formattedAst  = computed(() => syntaxResult.value?.ast ? JSON.stringify(sy
 const unknownTokens = computed(() => tokens.value.filter(t => t.type === 'UNKNOWN'))
 const directLines   = computed(() => (translatorResult.value?.code ?? '').split('\n'))
 const optLines      = computed(() => (optimizerResult.value?.optimizedCpp ?? '').split('\n'))
+const asmLines      = computed(() => (codegenResult.value?.assembly ?? '').split('\n'))
 
 // ── Errores por línea (para resaltar en el editor) ────────────────────────────
 type LineError = { sev: 'lex'|'syn'|'sem'|'warn'; label: string; message: string }
@@ -734,6 +754,7 @@ const phases = computed(() => {
   const semOk  = r && Boolean(semanticResult.value?.success)
   const trlOk  = r && Boolean(translatorResult.value?.success)
   const optOk  = r && Boolean(optimizerResult.value?.success)
+  const cgOk   = r && Boolean(codegenResult.value?.success)
   const semErr = semanticResult.value?.errors?.length ?? 0
   const semWrn = semanticResult.value?.warnings?.length ?? 0
   const trlLines = (translatorResult.value?.code ?? '').split('\n').length
@@ -789,6 +810,14 @@ const phases = computed(() => {
       badge: r && trlOk && optOk ? String(diffStats.value.mod + diffStats.value.del + diffStats.value.add) : null,
       badgeClass: 'badge-warn',
     },
+    {
+      key: 'destino' as const, label: 'Código Destino',
+      status: !r ? 'pending' : cgOk ? 'ok' : 'err',
+      icon:   !r ? '◌' : cgOk ? '⛭' : '✗',
+      detail: !r ? 'Sin analizar' : cgOk ? `${codegenResult.value?.stats.instructions ?? 0} instrucciones` : 'Error',
+      badge: r && cgOk ? String(codegenResult.value?.stats.instructions ?? 0) : null,
+      badgeClass: 'badge-neutral',
+    },
   ]
 })
 
@@ -828,6 +857,14 @@ function kindChip(k: string) {
   if (k === 'import' || k === 'class') return 'chip-lit'
   return 'chip-id'
 }
+function asmLineClass(line: string): string {
+  const t = line.trim()
+  if (t.startsWith(';'))                 return 'asm-comment'
+  if (t.startsWith('.'))                 return 'asm-directive'
+  if (/^[A-Za-z_][\w.]*:/.test(t))       return 'asm-label'
+  return 'asm-instr'
+}
+
 function passChip(p: string) {
   if (p.includes('Plegado'))    return 'pass-fold'
   if (p.includes('algebraica') || p.includes('Reducción') || p.includes('potencia')) return 'pass-alg'
@@ -846,16 +883,18 @@ async function analyzeAll() {
   resultsReady.value = false
   tokens.value = []; syntaxResult.value = null
   semanticResult.value = null; translatorResult.value = null; optimizerResult.value = null
+  codegenResult.value = null
 
   try {
-    const [r1, r2, r3, r4, r5] = await Promise.all([
+    const [r1, r2, r3, r4, r5, r6] = await Promise.all([
       POST('http://localhost:3000/lexer/lex'),
       POST('http://localhost:3000/syntax/analyze'),
       POST('http://localhost:3000/semantic/analyze'),
       POST('http://localhost:3000/translator/translate'),
       POST('http://localhost:3000/optimizer/optimize'),
+      POST('http://localhost:3000/codegen/generate'),
     ])
-    const [j1, j2, j3, j4, j5] = await Promise.all([r1.json(), r2.json(), r3.json(), r4.json(), r5.json()])
+    const [j1, j2, j3, j4, j5, j6] = await Promise.all([r1.json(), r2.json(), r3.json(), r4.json(), r5.json(), r6.json()])
 
     if (Array.isArray(j1.tokens))
       tokens.value = j1.tokens.map((t: any) => ({ type: t.type||'UNKNOWN', lexeme: t.lexeme||'', line: t.line, column: t.column }))
@@ -864,6 +903,7 @@ async function analyzeAll() {
     semanticResult.value = { success: Boolean(j3.success), errors: Array.isArray(j3.errors) ? j3.errors : [], warnings: Array.isArray(j3.warnings) ? j3.warnings : [], symbolTable: Array.isArray(j3.symbolTable) ? j3.symbolTable : [] }
     translatorResult.value= { success: Boolean(j4.success), code: j4.code ?? '', error: j4.error }
     optimizerResult.value = { success: Boolean(j5.success), optimizedCpp: j5.optimizedCpp ?? '', changes: Array.isArray(j5.changes) ? j5.changes : [], totalChanges: j5.totalChanges ?? 0, passesRun: j5.passesRun ?? 0, error: j5.error }
+    codegenResult.value   = { success: Boolean(j6.success), assembly: j6.assembly ?? '', stats: j6.stats ?? { instructions: 0, registers: 0, labels: 0, strings: 0, variables: 0 }, error: j6.error }
 
     resultsReady.value = true
   } catch {
@@ -878,6 +918,7 @@ function loadExample() {
   resultsReady.value = false
   tokens.value = []; syntaxResult.value = null
   semanticResult.value = null; translatorResult.value = null; optimizerResult.value = null
+  codegenResult.value = null
 }
 
 async function copyDirectCpp() {
@@ -890,33 +931,50 @@ async function copyOptCpp() {
   await navigator.clipboard.writeText(optimizerResult.value.optimizedCpp)
   copiedOpt.value = true; setTimeout(() => { copiedOpt.value = false }, 2000)
 }
+async function copyAsm() {
+  if (!codegenResult.value?.assembly) return
+  await navigator.clipboard.writeText(codegenResult.value.assembly)
+  copiedAsm.value = true; setTimeout(() => { copiedAsm.value = false }, 2000)
+}
 </script>
 
 <style scoped>
 /* ══════════════════════════ LAYOUT ══════════════════════════ */
 .analyzer { display: flex; flex-direction: column; gap: 12px; height: calc(100vh - 100px); min-height: 560px; }
 
-.top-row { display: flex; gap: 12px; flex: 0 0 44%; min-height: 240px; }
-
-.editor-panel { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
-.status-panel { flex: 0 0 264px; display: flex; flex-direction: column; overflow: hidden; }
 .tabs-section { flex: 1; display: flex; flex-direction: column; overflow: hidden; min-height: 0; }
 
 /* ── Panel base ── */
 .panel { background: #161b22; border: 1px solid #30363d; border-radius: 10px; overflow: hidden; }
 
-.panel-header {
-  display: flex; align-items: center; gap: 8px;
-  padding: 10px 16px; background: #1c2128;
-  border-bottom: 1px solid #30363d;
-  font-size: 12px; color: #8b949e;
-  font-family: 'Courier New', monospace; flex-shrink: 0;
+/* ── Barra superior ── */
+.toolbar-panel {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 10px 16px; flex-shrink: 0;
 }
-.panel-label { flex: 1; }
-.panel-dot { width: 10px; height: 10px; border-radius: 50%; }
-.panel-dot.red    { background: #ff5f56; }
-.panel-dot.yellow { background: #ffbd2e; }
-.panel-dot.green  { background: #27c93f; }
+
+.phase-chips { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-left: 8px; flex: 1; }
+
+.phase-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 4px 11px; border-radius: 14px;
+  font-size: 11px; font-weight: 600; white-space: nowrap;
+  background: transparent; border: 1px solid #30363d; color: #8b949e;
+  cursor: pointer; transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+.phase-chip:hover { background: #21262d; color: #e6edf3; }
+.pc-icon { font-size: 12px; }
+
+.pc-ok      { border-color: #2e5a3a; color: #56d364; }
+.pc-err     { border-color: #6e2b28; color: #f85149; }
+.pc-pending { border-color: #30363d; color: #545d68; }
+
+.pc-active { background: #21262d; border-color: #388bfd; color: #e6edf3; }
+.pc-active.pc-ok  { border-color: #56d364; }
+.pc-active.pc-err { border-color: #f85149; }
+
+/* ── Editor como tab ── */
+.editor-pane { position: relative; }
 
 /* ── Editor ── */
 .editor-wrap { display: flex; flex: 1; background: #0d1117; overflow: hidden; min-height: 0; }
@@ -972,12 +1030,6 @@ async function copyOptCpp() {
 .tt-warn { background: #3d2b00; color: #e3b341; }
 .tt-msg  { font-size: 12px; color: #e6edf3; line-height: 1.5; }
 
-.editor-footer {
-  display: flex; align-items: center; gap: 10px;
-  padding: 10px 16px; background: #161b22;
-  border-top: 1px solid #30363d; flex-shrink: 0;
-}
-
 /* ── Botones ── */
 .btn {
   padding: 7px 16px; border-radius: 6px; font-size: 13px; font-weight: 500;
@@ -1007,44 +1059,10 @@ async function copyOptCpp() {
 .example-select:hover { border-color: #8b949e; }
 .example-select option { background: #1c2128; }
 
-/* ── Panel de estado ── */
-.all-ok-chip { padding: 2px 10px; border-radius: 20px; font-size: 11px; font-weight: 600; }
+/* ── Chip de estado global ── */
+.all-ok-chip { padding: 3px 12px; border-radius: 20px; font-size: 11px; font-weight: 600; white-space: nowrap; }
 .aok-ok  { background: #1a3a2a; color: #56d364; }
 .aok-err { background: #3d1a1a; color: #f85149; }
-
-.status-body { flex: 1; display: flex; flex-direction: column; overflow-y: auto; }
-
-.status-empty {
-  flex: 1; display: flex; align-items: center; justify-content: center;
-  padding: 24px 20px; color: #8b949e; font-size: 12.5px; text-align: center; line-height: 1.7;
-}
-.status-empty strong { color: #e6edf3; }
-
-.status-item {
-  display: flex; align-items: center; gap: 12px;
-  padding: 13px 16px; cursor: pointer;
-  border-bottom: 1px solid #21262d;
-  border-left: 3px solid transparent;
-  transition: background 0.12s, border-color 0.12s;
-}
-.status-item:last-child { border-bottom: none; }
-.status-item:hover { background: #1c2128; }
-
-.si-active { background: #1c2128; }
-.si-active.si-ok  { border-left-color: #56d364; }
-.si-active.si-err { border-left-color: #f85149; }
-.si-active.si-pending { border-left-color: #388bfd; }
-
-.si-icon { font-size: 17px; width: 24px; text-align: center; flex-shrink: 0; }
-.si-ok   .si-icon { color: #56d364; }
-.si-err  .si-icon { color: #f85149; }
-.si-pending .si-icon { color: #3d444d; }
-
-.si-text { flex: 1; display: flex; flex-direction: column; gap: 2px; }
-.si-name   { font-size: 13px; color: #e6edf3; font-weight: 500; }
-.si-detail { font-size: 11px; color: #8b949e; font-family: 'Courier New', monospace; }
-.si-arrow  { color: #3d444d; font-size: 16px; }
-.status-item:hover .si-arrow { color: #8b949e; }
 
 /* ── Tab bar ── */
 .tab-bar {
@@ -1217,6 +1235,13 @@ async function copyOptCpp() {
 .code-direct .cl-text { color: #79c0ff; }
 .code-opt    .cl-text { color: #56d364; }
 .code-opt { font-size: 11.5px; line-height: 1.6; }
+
+/* ── Código Destino (ensamblador) ── */
+.asm-stat strong { color: #ffa657; }
+.code-asm .asm-instr     { color: #e6edf3; }
+.code-asm .asm-label     { color: #ffa657; font-weight: 700; }
+.code-asm .asm-directive { color: #d2a8ff; font-weight: 600; }
+.code-asm .asm-comment   { color: #6a737d; font-style: italic; }
 
 /* ── Comparación (diff) ── */
 .diff-toolbar {

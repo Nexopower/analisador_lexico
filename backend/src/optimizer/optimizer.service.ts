@@ -23,7 +23,7 @@ export type OptimizerResult = {
 // ─────────────────────────────────────────────────────────────────────────────
 // AST Optimizer — applies classic compiler optimization passes on the AST
 // ─────────────────────────────────────────────────────────────────────────────
-class AstOptimizer {
+export class AstOptimizer {
   private changes: OptimizationChange[] = [];
 
   optimize(ast: AstNode): { ast: AstNode; changes: OptimizationChange[]; passesRun: number } {

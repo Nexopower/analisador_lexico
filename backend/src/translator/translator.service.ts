@@ -14,6 +14,16 @@ class CppGenerator {
   private declaredVars = new Set<string>();
   private scopeVarStack: Set<string>[] = [];
 
+  // Qué necesita realmente el código generado (para emitir solo los #include usados)
+  private needs = {
+    iostream: false, // std::cout / std::endl
+    string:   false, // std::string / std::to_string
+    cmath:    false, // pow, sqrt, INFINITY, ...
+    cstdlib:  false, // rand, RAND_MAX
+    mpi:      false, // constante M_PI
+    me:       false, // constante M_E
+  };
+
   generate(ast: AstNode): string {
     const functionNodes: AstNode[] = [];
     const globals: string[] = [];
@@ -39,23 +49,20 @@ class CppGenerator {
     const functions: string[] = [];
     for (const fn of sortedFns) functions.push(...this.genFunctionDef(fn), '');
 
-    const lines: string[] = [
-      '// Compilar con: g++ -std=c++20 archivo.cpp -o programa',
-      '#include <iostream>',
-      '#include <string>',
-      '#include <cmath>',
-      '#include <cstdlib>',
-      '#ifndef M_PI',
-      '#define M_PI 3.14159265358979323846',
-      '#endif',
-      '#ifndef M_E',
-      '#define M_E 2.71828182845904523536',
-      '#endif',
-      '',
-      ...fwdDecls,
-      '',
-      ...functions,
-    ];
+    // Solo los #include que el código traducido realmente usa
+    const headers: string[] = [];
+    if (this.needs.iostream) headers.push('#include <iostream>');
+    if (this.needs.string)   headers.push('#include <string>');
+    if (this.needs.cmath)    headers.push('#include <cmath>');
+    if (this.needs.cstdlib)  headers.push('#include <cstdlib>');
+    if (this.needs.mpi) headers.push('#ifndef M_PI', '#define M_PI 3.14159265358979323846', '#endif');
+    if (this.needs.me)  headers.push('#ifndef M_E', '#define M_E 2.71828182845904523536', '#endif');
+
+    const lines: string[] = ['// Compilar con: g++ -std=c++20 archivo.cpp -o programa'];
+    if (headers.length)  lines.push(...headers);
+    if (fwdDecls.length) lines.push('', ...fwdDecls);
+    if (functions.length) lines.push('', ...functions);
+    else lines.push('');
 
     lines.push('int main() {');
     for (const line of globals) lines.push('    ' + line);
@@ -265,14 +272,18 @@ class CppGenerator {
       }
 
       case 'BinaryExpression': {
-        if (node.operator === '**')
+        if (node.operator === '**') {
+          this.needs.cmath = true;
           return `pow(${this.genExpr(node.left)}, ${this.genExpr(node.right)})`;
+        }
         const op  = this.translateOp(node.operator);
         const lhs = this.genExpr(node.left);
         const rhs = this.genExpr(node.right);
         // "a" + "b" es inválido en C++ (const char* + const char*): envolver en std::string
-        if (op === '+' && this.isRawStringLiteral(lhs) && this.isRawStringLiteral(rhs))
+        if (op === '+' && this.isRawStringLiteral(lhs) && this.isRawStringLiteral(rhs)) {
+          this.needs.string = true;
           return `std::string(${lhs}) + ${rhs}`;
+        }
         return `${lhs} ${op} ${rhs}`;
       }
 
@@ -285,11 +296,11 @@ class CppGenerator {
         const obj  = this.genExpr(node.object);
         const attr = node.attr ?? node.attribute ?? '';
         if (obj === 'math') {
-          if (attr === 'pi')  return 'M_PI';
-          if (attr === 'e')   return 'M_E';
-          if (attr === 'inf') return 'INFINITY';
-          if (attr === 'nan') return 'NAN';
-          if (attr === 'tau') return '(2.0 * M_PI)';
+          if (attr === 'pi')  { this.needs.mpi = true; return 'M_PI'; }
+          if (attr === 'e')   { this.needs.me = true; return 'M_E'; }
+          if (attr === 'inf') { this.needs.cmath = true; return 'INFINITY'; }
+          if (attr === 'nan') { this.needs.cmath = true; return 'NAN'; }
+          if (attr === 'tau') { this.needs.mpi = true; return '(2.0 * M_PI)'; }
         }
         if (obj === 'os') {
           if (attr === 'sep')     return '"/"';
@@ -319,18 +330,27 @@ class CppGenerator {
               sinh: 'sinh', cosh: 'cosh', tanh: 'tanh',
               hypot: 'hypot', fmod: 'fmod',
             };
-            if (method in mathMap) return `${mathMap[method]}(${argStr})`;
+            if (method in mathMap) {
+              this.needs.cmath = true;
+              return `${mathMap[method]}(${argStr})`;
+            }
           }
           if (obj === 'random') {
-            if (method === 'randint' && args.length === 2)
+            if (method === 'randint' && args.length === 2) {
+              this.needs.cstdlib = true;
               return `(${argList[0]} + rand() % (${argList[1]} - ${argList[0]} + 1))`;
-            if (method === 'random' && args.length === 0)
+            }
+            if (method === 'random' && args.length === 0) {
+              this.needs.cstdlib = true;
               return '((double)rand() / RAND_MAX)';
-            if (method === 'uniform' && args.length === 2)
+            }
+            if (method === 'uniform' && args.length === 2) {
+              this.needs.cstdlib = true;
               return `(${argList[0]} + ((double)rand() / RAND_MAX) * (${argList[1]} - ${argList[0]}))`;
+            }
           }
           if (obj === 'os') {
-            if (method === 'getcwd') return 'std::string(".")';
+            if (method === 'getcwd') { this.needs.string = true; return 'std::string(".")'; }
           }
           return `${obj}.${method}(${argStr})`;
         }
@@ -338,12 +358,16 @@ class CppGenerator {
         const callee = node.callee?.name ?? this.genExpr(node.callee);
 
         if (callee === 'print') {
+          this.needs.iostream = true;
           if (args.length === 0) return 'std::cout << std::endl';
           const parts = args.map(a => this.genExprForCout(a));
           return `std::cout << ${parts.join(' << ')} << std::endl`;
         }
         if (callee === 'len'   && args.length === 1) return `${this.genExpr(args[0])}.size()`;
-        if (callee === 'str'   && args.length === 1) return `std::to_string(${this.genExpr(args[0])})`;
+        if (callee === 'str'   && args.length === 1) {
+          this.needs.string = true;
+          return `std::to_string(${this.genExpr(args[0])})`;
+        }
         if (callee === 'int'   && args.length === 1) return `static_cast<int>(${this.genExpr(args[0])})`;
         if (callee === 'float' && args.length === 1) return `static_cast<double>(${this.genExpr(args[0])})`;
 
@@ -371,6 +395,7 @@ class CppGenerator {
   private parseFStringConcat(raw: string): string {
     const inner = this.extractStringInner(raw);
     const segments = this.splitFString(inner);
+    if (segments.some(s => s.isExpr)) this.needs.string = true;
     if (segments.length === 1) {
       const s = segments[0];
       return s.isExpr ? `std::to_string(${s.value})` : `"${s.value.replace(/"/g, '\\"')}"`;
