@@ -8,12 +8,25 @@
         {{ loading ? 'Analizando…' : '▶  Analizar todo' }}
       </button>
       <select v-model="selectedExample" class="example-select">
-        <option value="real">Ejemplo 1</option>
-        <option value="librerias">Ejemplo 2 (con librerias)</option>
-        <option value="optimizable">Para optimizar</option>
-        <option value="errores_lexicos">Errores léxicos</option>
-        <option value="errores_sintacticos">Errores sintácticos</option>
-        <option value="errores_semanticos">Errores semánticos</option>
+        <optgroup label="Programas">
+          <option value="real">Ejemplo 1</option>
+          <option value="librerias">Ejemplo 2 (con librerias)</option>
+          <option value="optimizable">Para optimizar</option>
+        </optgroup>
+        <optgroup label="Interactivos (usan input)">
+          <option value="regit">Regit (dígito repetido)</option>
+          <option value="calculadora">Calculadora</option>
+          <option value="primos">Números primos</option>
+          <option value="pares">Números pares</option>
+          <option value="perfectos">Números perfectos</option>
+          <option value="primos_perfectos">Primos perfectos</option>
+          <option value="endemoniados">Números endemoniados</option>
+        </optgroup>
+        <optgroup label="Con errores">
+          <option value="errores_lexicos">Errores léxicos</option>
+          <option value="errores_sintacticos">Errores sintácticos</option>
+          <option value="errores_semanticos">Errores semánticos</option>
+        </optgroup>
       </select>
       <button class="btn btn-ghost" @click="loadExample">Cargar</button>
 
@@ -322,6 +335,61 @@
           </template>
         </div>
 
+        <!-- ── Ejecución ── -->
+        <div v-show="activeTab === 'ejecucion'" class="tab-pane">
+          <div class="run-toolbar">
+            <button class="btn btn-primary" @click="runProgram" :disabled="compiling || winLaunching">
+              <span v-if="compiling" class="spinner"></span>
+              {{ compiling ? 'Compilando…' : '▶  Ejecutar en la web' }}
+            </button>
+            <button v-if="procRunning" class="btn btn-ghost btn-stop" @click="stopProgram">■ Detener</button>
+            <button class="btn btn-ghost" @click="runInWindows" :disabled="winLaunching || compiling"
+              title="Compila el código actual y lo ejecuta en una ventana cmd real de Windows">
+              <span v-if="winLaunching" class="spinner"></span>
+              {{ winLaunching ? 'Compilando…' : '🗔 Ejecutar en Windows' }}
+            </button>
+            <button class="btn btn-ghost" @click="downloadExe" :disabled="exeDownloading"
+              title="Compila el código actual y descarga el ejecutable">
+              <span v-if="exeDownloading" class="spinner"></span>
+              {{ exeDownloading ? 'Compilando…' : '⭳ Descargar .exe' }}
+            </button>
+            <span v-if="procRunning" class="run-meta run-live">● en ejecución — el programa espera tu entrada abajo</span>
+            <span v-else-if="exitInfo" class="run-meta">{{ exitInfo.timeMs }} ms</span>
+          </div>
+          <div class="tab-scroll terminal" ref="terminalRef" @click="focusStdin">
+            <div v-if="!hasRun" class="term-hint">
+              Presiona <strong>"Compilar y ejecutar"</strong> — el C++ optimizado se guarda como .cpp,
+              se compila con g++ a un .exe y se ejecuta aquí. Cuando el programa pida un input()
+              se quedará esperando: escribe la respuesta en el terminal y presiona Enter,
+              igual que en una consola real.
+            </div>
+            <template v-else>
+              <div v-if="startError?.stage === 'traduccion'" class="term-err">✗ {{ startError.error }}</div>
+              <template v-else>
+                <div class="term-cmd">$ g++ -std=c++20 -static programa.cpp -o programa.exe</div>
+                <pre v-if="startError?.stage === 'compilacion'" class="term-err">{{ startError.compilerOutput }}</pre>
+                <template v-else>
+                  <div class="term-cmd">$ ./programa.exe</div>
+                  <div class="term-io"><span class="term-stream">{{ termOutput }}</span><input
+                    v-if="procRunning"
+                    ref="stdinRef"
+                    v-model="stdinLine"
+                    class="term-stdin"
+                    spellcheck="false"
+                    autocomplete="off"
+                    @keydown.enter="sendStdin"
+                  /></div>
+                  <div v-if="exitInfo" class="term-status" :class="!exitInfo.timedOut && exitInfo.exitCode === 0 ? 'term-ok' : 'term-err'">
+                    {{ exitInfo.timedOut
+                        ? '⏱ Tiempo agotado'
+                        : `Proceso terminado con código ${exitInfo.exitCode ?? '—'}` }}
+                  </div>
+                </template>
+              </template>
+            </template>
+          </div>
+        </div>
+
       </div>
     </section>
 
@@ -342,6 +410,8 @@ type OptChange      = { pass: string; description: string; line?: number }
 type OptResult      = { success: boolean; optimizedCpp: string; changes: OptChange[]; totalChanges: number; passesRun: number; error?: string }
 type CodegenStats   = { instructions: number; registers: number; labels: number; strings: number; variables: number }
 type CodegenResult  = { success: boolean; assembly: string; stats: CodegenStats; error?: string }
+type RunStart       = { success: boolean; stage: 'traduccion'|'compilacion'|'ejecucion'; sessionId?: string; compilerOutput?: string; error?: string }
+type ExitInfo       = { exitCode: number|null; timedOut: boolean; timeMs?: number }
 
 // ── Examples ──────────────────────────────────────────────────────────────────
 const EX_REAL = `def factorial(n):
@@ -596,10 +666,131 @@ print("2^8 = " + str(potencia_fija))
 print("Area Tierra: " + str(area_fija))
 `
 
+const EX_REGIT = `num=input('digite un numero')
+n=int(len(str(num)))
+primer=int(str(num[0]))
+
+if int(num) == int(primer * (((10**n) - 1) // 9)):
+    print('es regit')
+else:
+    print('no es')
+`
+
+const EX_CALCULADORA = `print("=== Calculadora ===")
+a = int(input("primer numero: "))
+b = int(input("segundo numero: "))
+op = input("operacion (+, -, *, /): ")
+
+if op == "+":
+    print("resultado: " + str(a + b))
+elif op == "-":
+    print("resultado: " + str(a - b))
+elif op == "*":
+    print("resultado: " + str(a * b))
+elif op == "/":
+    if b == 0:
+        print("error: division entre cero")
+    else:
+        print("resultado: " + str(float(a) / b))
+else:
+    print("operacion no valida")
+`
+
+const EX_PRIMOS = `def es_primo(n):
+    if n < 2:
+        return False
+    i = 2
+    while i * i <= n:
+        if n % i == 0:
+            return False
+        i = i + 1
+    return True
+
+limite = int(input("ver primos hasta: "))
+n = 2
+while n <= limite:
+    if es_primo(n):
+        print(str(n) + " es primo")
+    n = n + 1
+`
+
+const EX_PARES = `limite = int(input("ver pares hasta: "))
+n = 1
+while n <= limite:
+    if n % 2 == 0:
+        print(str(n) + " es par")
+    n = n + 1
+`
+
+const EX_PERFECTOS = `def es_perfecto(n):
+    suma = 0
+    i = 1
+    while i < n:
+        if n % i == 0:
+            suma = suma + i
+        i = i + 1
+    return suma == n
+
+limite = int(input("buscar perfectos hasta: "))
+n = 2
+while n <= limite:
+    if es_perfecto(n):
+        print(str(n) + " es perfecto")
+    n = n + 1
+`
+
+const EX_PRIMOS_PERFECTOS = `def es_primo(n):
+    if n < 2:
+        return False
+    i = 2
+    while i * i <= n:
+        if n % i == 0:
+            return False
+        i = i + 1
+    return True
+
+def suma_digitos(n):
+    suma = 0
+    while n > 0:
+        suma = suma + n % 10
+        n = n // 10
+    return suma
+
+limite = int(input("buscar primos perfectos hasta: "))
+n = 2
+while n <= limite:
+    if es_primo(n):
+        if es_primo(suma_digitos(n)):
+            print(str(n) + " es primo perfecto")
+    n = n + 1
+`
+
+const EX_ENDEMONIADOS = `def es_endemoniado(n):
+    while n >= 666:
+        if n % 1000 == 666:
+            return True
+        n = n // 10
+    return False
+
+limite = int(input("buscar endemoniados hasta: "))
+n = 666
+while n <= limite:
+    if es_endemoniado(n):
+        print(str(n) + " es endemoniado")
+    n = n + 1
+`
+
 const EXAMPLES: Record<string, string> = {
   real: EX_REAL,
   librerias: EX_LIBS,
   optimizable: EX_OPTIMIZABLE,
+  regit: EX_REGIT,
+  calculadora: EX_CALCULADORA,
+  primos: EX_PRIMOS,
+  pares: EX_PARES,
+  perfectos: EX_PERFECTOS,
+  primos_perfectos: EX_PRIMOS_PERFECTOS,
+  endemoniados: EX_ENDEMONIADOS,
   errores_lexicos: EX_LEXICO,
   errores_sintacticos: EX_SINTACTICO,
   errores_semanticos: EX_SEMANTICO,
@@ -613,13 +804,26 @@ const semanticResult  = ref<SemanticResult | null>(null)
 const translatorResult= ref<TranslResult | null>(null)
 const optimizerResult = ref<OptResult | null>(null)
 const codegenResult   = ref<CodegenResult | null>(null)
+// Estado de ejecución interactiva
+const startError      = ref<RunStart | null>(null)
+const termOutput      = ref('')
+const procRunning     = ref(false)
+const exitInfo        = ref<ExitInfo | null>(null)
+const sessionId       = ref<string | null>(null)
+const stdinLine       = ref('')
+const compiling       = ref(false)
+const hasRun          = ref(false)
+const winLaunching    = ref(false)
+const exeDownloading  = ref(false)
+const terminalRef     = ref<HTMLDivElement | null>(null)
+const stdinRef        = ref<HTMLInputElement | null>(null)
 const loading         = ref(false)
 const copiedDirect    = ref(false)
 const copiedOpt       = ref(false)
 const copiedAsm       = ref(false)
 const resultsReady    = ref(false)
 const selectedExample = ref('real')
-const activeTab       = ref<'editor'|'lexico'|'sintactico'|'semantico'|'traductor'|'optimizador'|'comparacion'|'destino'>('editor')
+const activeTab       = ref<'editor'|'lexico'|'sintactico'|'semantico'|'traductor'|'optimizador'|'comparacion'|'destino'|'ejecucion'>('editor')
 const textareaRef     = ref<HTMLTextAreaElement | null>(null)
 const lineNumbersRef  = ref<HTMLDivElement | null>(null)
 const backdropRef     = ref<HTMLDivElement | null>(null)
@@ -818,6 +1022,24 @@ const phases = computed(() => {
       badge: r && cgOk ? String(codegenResult.value?.stats.instructions ?? 0) : null,
       badgeClass: 'badge-neutral',
     },
+    (() => {
+      const runErr = Boolean(startError.value) ||
+        (exitInfo.value != null && (exitInfo.value.exitCode !== 0 || exitInfo.value.timedOut))
+      const active = procRunning.value || compiling.value
+      return {
+        key: 'ejecucion' as const, label: 'Ejecución',
+        status: !hasRun.value || active ? 'pending' : runErr ? 'err' : 'ok',
+        icon:   !hasRun.value ? '▶' : active ? '⏵' : runErr ? '✗' : '✓',
+        detail: !hasRun.value ? 'Compilar y ejecutar'
+          : compiling.value ? 'Compilando…'
+          : procRunning.value ? 'Ejecutando…'
+          : startError.value ? (startError.value.stage === 'compilacion' ? 'Error de compilación' : 'Error de sintaxis')
+          : exitInfo.value?.timedOut ? 'Tiempo agotado'
+          : `salida ${exitInfo.value?.exitCode ?? '—'} · ${exitInfo.value?.timeMs ?? 0} ms`,
+        badge: !hasRun.value || active ? '▶' : runErr ? '✗' : '✓',
+        badgeClass: !hasRun.value || active ? 'badge-neutral' : runErr ? 'badge-err' : 'badge-ok',
+      }
+    })(),
   ]
 })
 
@@ -919,6 +1141,9 @@ function loadExample() {
   tokens.value = []; syntaxResult.value = null
   semanticResult.value = null; translatorResult.value = null; optimizerResult.value = null
   codegenResult.value = null
+  startError.value = null; termOutput.value = ''; exitInfo.value = null; hasRun.value = false
+  if (sessionId.value && procRunning.value) RUNNER('stop', { sessionId: sessionId.value }).catch(() => {})
+  sessionId.value = null; procRunning.value = false
 }
 
 async function copyDirectCpp() {
@@ -935,6 +1160,128 @@ async function copyAsm() {
   if (!codegenResult.value?.assembly) return
   await navigator.clipboard.writeText(codegenResult.value.assembly)
   copiedAsm.value = true; setTimeout(() => { copiedAsm.value = false }, 2000)
+}
+
+// ── Ejecución interactiva del programa ────────────────────────────────────────
+const JSONH = { 'Content-Type': 'application/json' }
+
+const RUNNER = (ep: string, body: object) =>
+  fetch(`http://localhost:3000/runner/${ep}`, { method: 'POST', headers: JSONH, body: JSON.stringify(body) })
+
+// Muestra un error de traducción/compilación en el panel del terminal
+function showRunError(j: RunStart) {
+  hasRun.value = true
+  startError.value = j
+  termOutput.value = ''
+  exitInfo.value = null
+  procRunning.value = false
+}
+
+async function runProgram() {
+  // Detener sesión anterior si sigue viva
+  if (sessionId.value && procRunning.value)
+    RUNNER('stop', { sessionId: sessionId.value }).catch(() => {})
+
+  compiling.value = true
+  hasRun.value = true
+  startError.value = null
+  termOutput.value = ''
+  exitInfo.value = null
+  procRunning.value = false
+  sessionId.value = null
+
+  try {
+    const r = await RUNNER('start', { code: code.value })
+    const j: RunStart = await r.json()
+    if (!j.success || !j.sessionId) { startError.value = j; return }
+    sessionId.value = j.sessionId
+    procRunning.value = true
+    nextTick(() => stdinRef.value?.focus())
+    pollLoop(j.sessionId)
+  } catch {
+    alert('Error al conectar con el backend')
+    hasRun.value = false
+  } finally {
+    compiling.value = false
+  }
+}
+
+// Consulta la salida del programa en vivo hasta que termine
+async function pollLoop(id: string) {
+  while (sessionId.value === id) {
+    try {
+      const r = await RUNNER('poll', { sessionId: id })
+      const j = await r.json()
+      if (sessionId.value !== id) return
+      if (j.output) termOutput.value += j.output
+      if (!j.running) {
+        procRunning.value = false
+        exitInfo.value = { exitCode: j.exitCode, timedOut: j.timedOut, timeMs: j.timeMs }
+        return
+      }
+    } catch {
+      procRunning.value = false
+      return
+    }
+    await new Promise(res => setTimeout(res, 250))
+  }
+}
+
+// El usuario escribió una línea en el terminal: eco local + enviarla al stdin
+async function sendStdin() {
+  if (!sessionId.value || !procRunning.value) return
+  const line = stdinLine.value
+  stdinLine.value = ''
+  termOutput.value += line + '\n'
+  RUNNER('stdin', { sessionId: sessionId.value, text: line }).catch(() => {})
+}
+
+async function stopProgram() {
+  if (!sessionId.value) return
+  RUNNER('stop', { sessionId: sessionId.value }).catch(() => {})
+}
+
+function focusStdin() {
+  if (procRunning.value) stdinRef.value?.focus()
+}
+
+// Autoscroll del terminal cuando llega salida nueva
+watch(termOutput, () => nextTick(() => {
+  if (terminalRef.value) terminalRef.value.scrollTop = terminalRef.value.scrollHeight
+}))
+
+// Compila el código actual y lo ejecuta en una ventana cmd real de Windows
+async function runInWindows() {
+  winLaunching.value = true
+  try {
+    const r = await RUNNER('run-console', { code: code.value })
+    const j: RunStart = await r.json()
+    if (!j.success) showRunError(j)
+  } catch {
+    alert('Error al conectar con el backend')
+  } finally {
+    winLaunching.value = false
+  }
+}
+
+// Compila el código actual y descarga el .exe resultante
+async function downloadExe() {
+  exeDownloading.value = true
+  try {
+    const r = await RUNNER('download', { code: code.value })
+    if (!r.ok) { showRunError(await r.json()); return }
+    const blob = await r.blob()
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = 'programa.exe'
+    a.click()
+    URL.revokeObjectURL(url)
+  } catch {
+    alert('Error al conectar con el backend')
+  } finally {
+    exeDownloading.value = false
+  }
 }
 </script>
 
@@ -1235,6 +1582,43 @@ async function copyAsm() {
 .code-direct .cl-text { color: #79c0ff; }
 .code-opt    .cl-text { color: #56d364; }
 .code-opt { font-size: 11.5px; line-height: 1.6; }
+
+/* ── Ejecución ── */
+.run-toolbar {
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
+  padding: 10px 16px; background: #1c2128;
+  border-bottom: 1px solid #30363d; flex-shrink: 0;
+}
+.run-meta { font-family: 'Courier New', monospace; font-size: 11.5px; color: #8b949e; white-space: nowrap; }
+.run-live { color: #56d364; }
+.btn-stop { color: #f85149; border-color: #6e2b28; }
+.btn-stop:hover { background: #3d1a1a; color: #ffa198; }
+
+.terminal {
+  background: #0a0e12; padding: 14px 18px;
+  font-family: 'Courier New', 'Cascadia Code', monospace;
+  font-size: 12.5px; line-height: 1.6;
+  cursor: text;
+}
+.term-hint { color: #545d68; font-size: 12px; line-height: 1.7; cursor: default; }
+.term-hint strong { color: #8b949e; }
+.term-cmd { color: #56d364; margin-bottom: 4px; }
+
+/* Flujo de salida + entrada en línea (como cursor de consola) */
+.term-io { white-space: pre-wrap; word-break: break-word; color: #e6edf3; margin-bottom: 8px; }
+.term-stream { white-space: pre-wrap; }
+.term-stdin {
+  display: inline-block; width: 28ch;
+  background: transparent; border: none; outline: none;
+  color: #7ee787; caret-color: #56d364;
+  font-family: inherit; font-size: inherit; line-height: inherit;
+  vertical-align: baseline; padding: 0;
+}
+
+.term-err { margin: 0 0 8px; color: #ffa198; white-space: pre-wrap; word-break: break-word; }
+.term-status { margin-top: 8px; padding-top: 8px; border-top: 1px solid #21262d; font-size: 11.5px; }
+.term-ok  { color: #56d364; }
+.term-status.term-err { color: #f85149; }
 
 /* ── Código Destino (ensamblador) ── */
 .asm-stat strong { color: #ffa657; }

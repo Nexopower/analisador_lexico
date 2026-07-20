@@ -22,6 +22,10 @@ class CppGenerator {
     cstdlib:  false, // rand, RAND_MAX
     mpi:      false, // constante M_PI
     me:       false, // constante M_E
+    inputFn:  false, // helper input() (lee de std::cin)
+    toStr:    false, // helper to_str() (str() de Python, acepta cualquier tipo)
+    toInt:    false, // helper to_int() (int() de Python, parsea strings)
+    toFloat:  false, // helper to_float() (float() de Python)
   };
 
   generate(ast: AstNode): string {
@@ -58,8 +62,35 @@ class CppGenerator {
     if (this.needs.mpi) headers.push('#ifndef M_PI', '#define M_PI 3.14159265358979323846', '#endif');
     if (this.needs.me)  headers.push('#ifndef M_E', '#define M_E 2.71828182845904523536', '#endif');
 
+    // Funciones de apoyo: equivalentes en C++ de los builtins de Python usados
+    const helpers: string[] = [];
+    if (this.needs.inputFn) helpers.push(
+      'std::string input(const std::string& prompt) {',
+      '    std::cout << prompt << std::flush;',
+      '    std::string linea;',
+      '    std::getline(std::cin, linea);',
+      '    return linea;',
+      '}',
+    );
+    if (this.needs.toStr) helpers.push(
+      'std::string to_str(const std::string& s) { return s; }',
+      'std::string to_str(const char* s) { return std::string(s); }',
+      'std::string to_str(char c) { return std::string(1, c); }',
+      'template<typename T> std::string to_str(T v) { return std::to_string(v); }',
+    );
+    if (this.needs.toInt) helpers.push(
+      'int to_int(const std::string& s) { return std::stoi(s); }',
+      "int to_int(char c) { return c - '0'; }",
+      'template<typename T> int to_int(T v) { return static_cast<int>(v); }',
+    );
+    if (this.needs.toFloat) helpers.push(
+      'double to_float(const std::string& s) { return std::stod(s); }',
+      'template<typename T> double to_float(T v) { return static_cast<double>(v); }',
+    );
+
     const lines: string[] = ['// Compilar con: g++ -std=c++20 archivo.cpp -o programa'];
     if (headers.length)  lines.push(...headers);
+    if (helpers.length)  lines.push('', '// ── Funciones de apoyo (builtins de Python) ──', ...helpers);
     if (fwdDecls.length) lines.push('', ...fwdDecls);
     if (functions.length) lines.push('', ...functions);
     else lines.push('');
@@ -363,15 +394,41 @@ class CppGenerator {
           const parts = args.map(a => this.genExprForCout(a));
           return `std::cout << ${parts.join(' << ')} << std::endl`;
         }
+        if (callee === 'input' && args.length <= 1) {
+          this.needs.inputFn = true;
+          this.needs.iostream = true;
+          this.needs.string = true;
+          return args.length === 1 ? `input(${this.genExpr(args[0])})` : 'input("")';
+        }
         if (callee === 'len'   && args.length === 1) return `${this.genExpr(args[0])}.size()`;
         if (callee === 'str'   && args.length === 1) {
+          this.needs.toStr = true;
           this.needs.string = true;
-          return `std::to_string(${this.genExpr(args[0])})`;
+          return `to_str(${this.genExpr(args[0])})`;
         }
-        if (callee === 'int'   && args.length === 1) return `static_cast<int>(${this.genExpr(args[0])})`;
-        if (callee === 'float' && args.length === 1) return `static_cast<double>(${this.genExpr(args[0])})`;
+        if (callee === 'int'   && args.length === 1) {
+          this.needs.toInt = true;
+          this.needs.string = true;
+          return `to_int(${this.genExpr(args[0])})`;
+        }
+        if (callee === 'float' && args.length === 1) {
+          this.needs.toFloat = true;
+          this.needs.string = true;
+          return `to_float(${this.genExpr(args[0])})`;
+        }
 
         return `${callee}(${args.map(a => this.genExpr(a)).join(', ')})`;
+      }
+
+      case 'Subscript': {
+        const obj = this.genExpr(node.object);
+        const sl = node.slice;
+        if (sl?.type === 'Slice') {
+          const lo = sl.lower ? this.genExpr(sl.lower) : '0';
+          if (sl.upper) return `${obj}.substr(${lo}, ${this.genExpr(sl.upper)} - ${lo})`;
+          return `${obj}.substr(${lo})`;
+        }
+        return `${obj}[${this.genExpr(sl)}]`;
       }
 
       case 'Grouping':
@@ -395,13 +452,13 @@ class CppGenerator {
   private parseFStringConcat(raw: string): string {
     const inner = this.extractStringInner(raw);
     const segments = this.splitFString(inner);
-    if (segments.some(s => s.isExpr)) this.needs.string = true;
+    if (segments.some(s => s.isExpr)) { this.needs.string = true; this.needs.toStr = true; }
     if (segments.length === 1) {
       const s = segments[0];
-      return s.isExpr ? `std::to_string(${s.value})` : `"${s.value.replace(/"/g, '\\"')}"`;
+      return s.isExpr ? `to_str(${s.value})` : `"${s.value.replace(/"/g, '\\"')}"`;
     }
     return segments
-      .map(s => s.isExpr ? `std::to_string(${s.value})` : `"${s.value.replace(/"/g, '\\"')}"`)
+      .map(s => s.isExpr ? `to_str(${s.value})` : `"${s.value.replace(/"/g, '\\"')}"`)
       .join(' + ');
   }
 

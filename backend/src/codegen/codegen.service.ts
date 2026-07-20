@@ -375,6 +375,18 @@ class AsmGenerator {
         return t;
       }
 
+      case 'Subscript': {
+        const objR = this.genExpr(node.object);
+        const sl = node.slice;
+        const idxNode = sl?.type === 'Slice' ? sl.lower : sl;
+        const idxR = this.genExpr(idxNode);
+        const addr = this.newTemp();
+        this.emitInstr('ADD', `${addr}, ${objR}, ${idxR}`, 'dirección base + índice');
+        const t = this.newTemp();
+        this.emitInstr('LDB', `${t}, [${addr}]`, 'cargar elemento');
+        return t;
+      }
+
       case 'CallExpression':
         return this.genCall(node);
 
@@ -404,6 +416,22 @@ class AsmGenerator {
     const callee = node.callee?.name ?? '';
 
     if (callee === 'print') return this.genPrint(args);
+
+    if (callee === 'input') {
+      if (args.length === 1 && args[0].type === 'StringLiteral') {
+        const label = this.internString(this.extractStringInner(args[0].value));
+        this.emitInstr('LA', `a0, ${label}`);
+        this.emitInstr('SYSCALL', 'print_str', 'mostrar prompt');
+      } else if (args.length === 1) {
+        const r = this.genExpr(args[0]);
+        this.emitInstr('MOV', `a0, ${r}`);
+        this.emitInstr('SYSCALL', 'print_val', 'mostrar prompt');
+      }
+      const t = this.newTemp();
+      this.emitInstr('SYSCALL', 'read_val', 'leer entrada del usuario');
+      this.emitInstr('MOV', `${t}, v0`, 'valor leído');
+      return t;
+    }
 
     // Conversiones: el valor pasa igual, la conversión es del runtime
     if ((callee === 'str' || callee === 'int' || callee === 'float') && args.length === 1) {

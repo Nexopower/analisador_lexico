@@ -11,10 +11,12 @@ import { OptimizerController } from '../optimizer/optimizer.controller';
 import { OptimizerService } from '../optimizer/optimizer.service';
 import { CodegenController } from '../codegen/codegen.controller';
 import { CodegenService } from '../codegen/codegen.service';
+import { RunnerController } from '../runner/runner.controller';
+import { RunnerService } from '../runner/runner.service';
 
 @Module({
-  controllers: [LexerController, SyntaxController, SemanticController, TranslatorController, OptimizerController, CodegenController],
-  providers: [LexerService, SyntaxService, SemanticService, TranslatorService, OptimizerService, CodegenService],
+  controllers: [LexerController, SyntaxController, SemanticController, TranslatorController, OptimizerController, CodegenController, RunnerController],
+  providers: [LexerService, SyntaxService, SemanticService, TranslatorService, OptimizerService, CodegenService, RunnerService],
   exports: [LexerService],
 })
 export class LexerModule {}
